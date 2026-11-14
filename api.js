@@ -126,7 +126,7 @@
     };
   }
 
-  $("#matches").innerHTML = '<p class="muted">Checking for an API key…</p>';
+  $("#matches").innerHTML = '<p class="muted">Checking Cloudflare connection…</p>';
   $("#playerRows").innerHTML = '<p class="muted">Player statistics are not connected yet.</p>';
   $("#tableRows").innerHTML = '<tr><td colspan="5">Standings integration is not enabled yet.</td></tr>';
   $("#fixtures").innerHTML = '<div class="fixture"><small>Loading genuine fixtures…</small></div>';
