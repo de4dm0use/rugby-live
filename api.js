@@ -1,7 +1,8 @@
-/* RUGBY LIVE — API-Sports Rugby via private Cloudflare Worker. */
+/* RUGBY LIVE — temporary browser-key mode for API-Sports Rugby. */
 (() => {
-  const WORKER_BASE = "https://rugby-live.whetton-oscar.workers.dev";
-  const API_BASE = WORKER_BASE + "/api";
+  const API_BASE = "https://v1.rugby.api-sports.io";
+  const KEY_STORE = "rugby_live_api_key";
+  const getApiKey = () => localStorage.getItem(KEY_STORE) || "";
   const $ = (s) => document.querySelector(s);
   let liveMatches = [];
   let todayMatches = [];
@@ -18,39 +19,29 @@
     const p = Object.fromEntries(parts.map(x => [x.type, x.value]));
     return p.year + "-" + p.month + "-" + p.day;
   };
-  async function workerFetch(url) {
-    try {
-      return await fetch(url, { method: "GET", mode: "cors", headers: { "accept": "application/json" }, cache: "no-store" });
-    } catch (error) {
-      const reason = error && error.message ? error.message : String(error);
-      throw new Error("Cannot reach Cloudflare Worker (" + reason + "). Check that the Worker is deployed and workers.dev is enabled: " + WORKER_BASE);
-    }
-  }
-
-  async function testWorker() {
-    const r = await workerFetch(WORKER_BASE + "/health");
-    const raw = await r.text();
-    let data;
-    try { data = JSON.parse(raw); } catch { throw new Error("Worker health check returned HTTP " + r.status + " with non-JSON response: " + raw.slice(0, 160)); }
-    if (!r.ok || !data.ok) throw new Error("Worker health check failed: " + JSON.stringify(data));
-    if (!data.apiKeyConfigured) throw new Error("Worker is online, but API_KEY is missing. Add API_KEY under Worker Settings > Variables and Secrets, then deploy.");
-    return data;
-  }
-
   async function getGames(params) {
-    const q = new URLSearchParams({ endpoint: "games", ...params });
-    const r = await workerFetch(API_BASE + "?" + q.toString());
+    const key = getApiKey();
+    if (!key) throw new Error("Add your API-Sports key using Data provider setup.");
+    const q = new URLSearchParams(params);
+    let r;
+    try {
+      r = await fetch(API_BASE + "/games?" + q.toString(), {
+        method: "GET", mode: "cors",
+        headers: { "x-apisports-key": key, "accept": "application/json" },
+        cache: "no-store"
+      });
+    } catch (error) {
+      throw new Error("The browser could not reach API-Sports. This may be a CORS restriction. " + (error?.message || ""));
+    }
     const raw = await r.text();
     let data;
-    try {
-      data = JSON.parse(raw);
-    } catch {
-      const type = r.headers.get("content-type") || "unknown content type";
-      const preview = raw.slice(0, 220).replace(/\\s+/g, " ").trim();
-      throw new Error("HTTP " + r.status + " from Worker; " + type + "; response: " + (preview || "[empty body]"));
+    try { data = JSON.parse(raw); }
+    catch {
+      const preview = raw.slice(0, 220).replace(/\s+/g, " ").trim();
+      throw new Error("API-Sports returned HTTP " + r.status + " with an unreadable response: " + (preview || "[empty body]"));
     }
     if (!r.ok || (data.errors && Object.keys(data.errors).length) || data.error) {
-      throw new Error("HTTP " + r.status + ": " + JSON.stringify(data.errors || data.error || data.message || data));
+      throw new Error("API-Sports HTTP " + r.status + ": " + JSON.stringify(data.errors || data.error || data.message || data));
     }
     return Array.isArray(data.response) ? data.response : [];
   }
@@ -129,36 +120,39 @@
 
   function openSettings() {
     const body = $("#modalBody");
-    $("#modalTitle").textContent = "Live data connection";
+    $("#modalTitle").textContent = "API-Sports key";
     body.innerHTML = `
-      <p>Rugby Live uses its Cloudflare Worker to connect securely to API-Sports Rugby.</p>
-      <p><b>Worker:</b> <a href="https://rugby-live.whetton-oscar.workers.dev" target="_blank" rel="noopener" style="color:var(--green)">rugby-live.whetton-oscar.workers.dev</a></p>
-      <p>Your API key is stored privately as a Cloudflare Worker secret. It is not stored in this website or GitHub.</p>
-      <p id="rugbyKeyStatus">Checking connection…</p>
-      <button id="testRugbyConnection" class="filter" type="button">Test connection</button>`;
+      <p>Enter your API-Sports Rugby key. It will be saved only in this browser on this device, not in GitHub.</p>
+      <p style="color:var(--amber)"><b>Temporary setup:</b> the key can be inspected in this browser and its network requests. Don't use this on a shared device. A private proxy is safer.</p>
+      <label for="rugbyApiKey">API-Sports API key</label>
+      <input id="rugbyApiKey" class="search" type="password" autocomplete="off" placeholder="Paste your API key" style="width:100%;margin:8px 0 12px">
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button id="saveRugbyKey" class="filter" type="button">Save key & connect</button>
+        <button id="clearRugbyKey" class="filter" type="button">Forget saved key</button>
+      </div>
+      <p id="rugbyKeyStatus"></p>`;
     $("#modal").classList.add("open");
-    $("#rugbyKeyStatus").textContent = apiReady
-      ? "Connected — API-Sports data is loading."
-      : "Connection status: " + (window.RUGBY_API_ERROR || "not yet confirmed.");
-    $("#testRugbyConnection").onclick = async () => {
-      const button = $("#testRugbyConnection");
-      button.disabled = true;
-      $("#rugbyKeyStatus").textContent = "Checking Cloudflare Worker…";
-      try {
-        await testWorker();
-        $("#rugbyKeyStatus").textContent = "Worker online and API_KEY configured. Checking API-Sports…";
-        await refresh();
-        if (!apiReady) throw new Error(window.RUGBY_API_ERROR || "API-Sports request failed.");
-        $("#rugbyKeyStatus").textContent = "Connected successfully. Cloudflare Worker and API-Sports both returned valid responses.";
-      } catch (error) {
-        $("#rugbyKeyStatus").textContent = "Connection failed: " + error.message;
-      } finally {
-        button.disabled = false;
-      }
+    $("#rugbyApiKey").value = getApiKey();
+    $("#rugbyKeyStatus").textContent = getApiKey() ? "A key is saved in this browser." : "No API key saved yet.";
+    $("#saveRugbyKey").onclick = async () => {
+      const key = $("#rugbyApiKey").value.trim();
+      if (!key) { $("#rugbyKeyStatus").textContent = "Paste your API key first."; return; }
+      localStorage.setItem(KEY_STORE, key);
+      $("#rugbyKeyStatus").textContent = "Key saved in this browser. Testing API-Sports…";
+      await refresh();
+      $("#rugbyKeyStatus").textContent = apiReady
+        ? "Connected. API-Sports returned valid data."
+        : "Connection failed: " + (window.RUGBY_API_ERROR || "Unknown error");
+    };
+    $("#clearRugbyKey").onclick = () => {
+      localStorage.removeItem(KEY_STORE);
+      $("#rugbyApiKey").value = "";
+      $("#rugbyKeyStatus").textContent = "Saved key removed from this browser.";
+      apiReady = false; liveMatches = []; todayMatches = []; renderReal();
     };
   }
 
-  $("#matches").innerHTML = '<p class="muted">Checking Cloudflare connection…</p>';
+  $("#matches").innerHTML = getApiKey() ? '<p class="muted">Loading API-Sports data…</p>' : '<p class="muted">Add your API key in Data provider setup to load live matches.</p>';
   $("#playerRows").innerHTML = '<p class="muted">Player statistics are not connected yet.</p>';
   $("#tableRows").innerHTML = '<tr><td colspan="5">Standings integration is not enabled yet.</td></tr>';
   $("#fixtures").innerHTML = '<div class="fixture"><small>Loading genuine fixtures…</small></div>';
@@ -170,6 +164,6 @@
   // Assign rather than add a listener: this replaces the legacy demo modal handler
   // still present in the original page script.
   if ($("#api")) $("#api").onclick = openSettings;
-  refresh();
-  setInterval(refresh, 5 * 60 * 1000);
+  if (getApiKey()) refresh();
+  setInterval(() => { if (getApiKey()) refresh(); }, 5 * 60 * 1000);
 })();
