@@ -98,6 +98,9 @@
   $("#fixtures").innerHTML = '<div class="fixture"><small>Loading genuine fixtures…</small></div>';
   $("#search")?.addEventListener("input", renderReal);
   $("#filter")?.addEventListener("change", renderReal);
+  $("#tableFilter")?.addEventListener("change", () => {
+    $("#tableRows").innerHTML = '<tr><td colspan="5">Standings integration is not enabled for this competition yet.</td></tr>';
+  });
   refresh();
   setInterval(refresh, 5 * 60 * 1000);
 })();
