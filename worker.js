@@ -44,7 +44,7 @@ export default {
       }
       const result = new Response(body, { status: response.status, headers });
       if (response.ok) {
-        const ttl = endpoint === "games" && params.has("live") ? 900 : 3600;
+        const ttl = endpoint === "games" ? 300 : 3600;
         result.headers.set("cache-control", "public, max-age=" + ttl);
         ctx.waitUntil(cache.put(cacheKey, result.clone()));
       }
