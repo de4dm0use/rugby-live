@@ -1,6 +1,7 @@
 /* RUGBY LIVE — API-Sports Rugby via private Cloudflare Worker. */
 (() => {
-  const API_BASE = "https://rugby-live.whetton-oscar.workers.dev/api";
+  const WORKER_BASE = "https://rugby-live.whetton-oscar.workers.dev";
+  const API_BASE = WORKER_BASE + "/api";
   const $ = (s) => document.querySelector(s);
   let liveMatches = [];
   let todayMatches = [];
@@ -17,13 +18,28 @@
     const p = Object.fromEntries(parts.map(x => [x.type, x.value]));
     return p.year + "-" + p.month + "-" + p.day;
   };
+  async function workerFetch(url) {
+    try {
+      return await fetch(url, { method: "GET", mode: "cors", headers: { "accept": "application/json" }, cache: "no-store" });
+    } catch (error) {
+      const reason = error && error.message ? error.message : String(error);
+      throw new Error("Cannot reach Cloudflare Worker (" + reason + "). Check that the Worker is deployed and workers.dev is enabled: " + WORKER_BASE);
+    }
+  }
+
+  async function testWorker() {
+    const r = await workerFetch(WORKER_BASE + "/health");
+    const raw = await r.text();
+    let data;
+    try { data = JSON.parse(raw); } catch { throw new Error("Worker health check returned HTTP " + r.status + " with non-JSON response: " + raw.slice(0, 160)); }
+    if (!r.ok || !data.ok) throw new Error("Worker health check failed: " + JSON.stringify(data));
+    if (!data.apiKeyConfigured) throw new Error("Worker is online, but API_KEY is missing. Add API_KEY under Worker Settings > Variables and Secrets, then deploy.");
+    return data;
+  }
+
   async function getGames(params) {
     const q = new URLSearchParams({ endpoint: "games", ...params });
-    const r = await fetch(API_BASE + "?" + q.toString(), {
-      method: "GET",
-      headers: { "accept": "application/json" },
-      cache: "no-store"
-    });
+    const r = await workerFetch(API_BASE + "?" + q.toString());
     const raw = await r.text();
     let data;
     try {
@@ -125,11 +141,20 @@
       ? "Connected — API-Sports data is loading."
       : "Connection status: " + (window.RUGBY_API_ERROR || "not yet confirmed.");
     $("#testRugbyConnection").onclick = async () => {
-      $("#rugbyKeyStatus").textContent = "Testing…";
-      await refresh();
-      $("#rugbyKeyStatus").textContent = apiReady
-        ? "Connected successfully. API-Sports returned a valid response."
-        : "Connection failed: " + (window.RUGBY_API_ERROR || "check the Worker secret and API subscription.");
+      const button = $("#testRugbyConnection");
+      button.disabled = true;
+      $("#rugbyKeyStatus").textContent = "Checking Cloudflare Worker…";
+      try {
+        await testWorker();
+        $("#rugbyKeyStatus").textContent = "Worker online and API_KEY configured. Checking API-Sports…";
+        await refresh();
+        if (!apiReady) throw new Error(window.RUGBY_API_ERROR || "API-Sports request failed.");
+        $("#rugbyKeyStatus").textContent = "Connected successfully. Cloudflare Worker and API-Sports both returned valid responses.";
+      } catch (error) {
+        $("#rugbyKeyStatus").textContent = "Connection failed: " + error.message;
+      } finally {
+        button.disabled = false;
+      }
     };
   }
 
