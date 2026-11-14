@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>BOSH! Racing</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#101820;color:#fff;font:16px system-ui,Arial;display:grid;place-items:center;min-height:100vh;padding:16px}
+main{width:min(960px,100%)}h1{margin:0 0 10px;font-size:clamp(26px,5vw,42px);letter-spacing:2px}.hud{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;background:#1d2b38;padding:12px 16px;border-radius:12px 12px 0 0;font-weight:800}
+canvas{display:block;width:100%;height:auto;background:#548e49;border-radius:0 0 12px 12px;touch-action:none}
+.controls{display:flex;gap:9px;margin-top:12px}.controls button,#start{border:0;border-radius:10px;background:#d64b27;color:white;font-weight:800;font-size:17px;padding:14px;cursor:pointer;flex:1}.controls button:active,#start:active{filter:brightness(1.25)}.help{text-align:center;color:#c6d0d8;font-size:13px;margin:10px}
+</style></head>
+<body><main><h1>🏁 BOSH! RACING</h1>
+<div class="hud"><span>SPEED <b id="speed">0</b> MPH</span><span>SCORE <b id="score">0</b></span><span>BEST <b id="best">0</b></span><span>FPS CAP 30</span></div>
+<canvas id="game" width="900" height="560" aria-label="BOSH Racing game"></canvas>
+<div class="controls"><button data-key="left">◀ LEFT</button><button data-key="brake">BRAKE</button><button data-key="gas">GAS ▲</button><button data-key="right">RIGHT ▶</button></div>
+<p class="help">Keyboard: ← → steer · ↑ accelerate · ↓ brake · R restart · Avoid traffic and stay between the barriers.</p>
+</main>
+<script>
+(()=>{
+const c=document.getElementById('game'),g=c.getContext('2d'),W=900,H=560;
+const $=id=>document.getElementById(id);
+const keys={},touch={};let last=0,acc=0,game;
+const road={l:205,r:695};
+function reset(){game={x:450,speed:0,score:0,best:game?.best||0,traffic:[],spawn:0,crash:false,off:false,scroll:0};}
+reset();
+function car(x,y,color,scale=1,label=''){
+ const w=46*scale,h=76*scale;g.save();g.translate(x,y);
+ g.fillStyle='#12171b';g.fillRect(-w*.58,-h*.48,w*1.16,h*.96);
+ g.fillStyle=color;g.beginPath();g.roundRect(-w/2,-h/2,w,h,9*scale);g.fill();
+ g.fillStyle='#a9dce8';g.beginPath();g.roundRect(-w*.34,-h*.34,w*.68,h*.25,5);g.fill();
+ g.fillStyle='#26333c';g.fillRect(-w*.34,h*.04,w*.68,h*.25);
+ g.fillStyle='#fff1c7';g.fillRect(-w*.38,h*.37,w*.18,5*scale);g.fillRect(w*.20,h*.37,w*.18,5*scale);
+ if(label){g.fillStyle='white';g.font='bold '+(10*scale)+'px system-ui';g.textAlign='center';g.fillText(label,0,h*.29);}
+ g.restore();
+}
+function draw(){
+ g.clearRect(0,0,W,H);g.fillStyle='#548c48';g.fillRect(0,0,W,H);
+ // distant scenery
+ for(let i=0;i<18;i++){let x=(i*67+game.scroll*.12)%980-30;g.fillStyle='#285c36';g.beginPath();g.arc(x,95+(i%3)*13,24,0,Math.PI*2);g.fill();}
+ // road and edge strips
+ g.fillStyle='#d4d4c9';g.fillRect(road.l-14,0,14,H);g.fillRect(road.r,0,14,H);
+ g.fillStyle='#cf3932';for(let y=-30;y<H;y+=44){let yy=(y+game.scroll)%44;g.fillRect(road.l-14,yy,14,22);g.fillRect(road.r,yy,14,22);}
+ g.fillStyle='#44494d';g.fillRect(road.l,0,road.r-road.l,H);
+ // lanes
+ g.fillStyle='#f3f0dc';for(let y=-60;y<H;y+=90){let yy=(y+game.scroll)%90;g.fillRect(road.l+160,yy,5,44);g.fillRect(road.l+320,yy,5,44);}
+ // roadside posts
+ for(let y=-20;y<H;y+=65){let yy=(y+game.scroll*.7)%65;g.fillStyle='#eee';g.fillRect(road.l-29,yy,8,23);g.fillRect(road.r+21,yy,8,23);}
+ for(const t of game.traffic)car(t.x,t.y,t.color,.9);
+ car(game.x,445,'#e84924',1,'BOSH');
+ if(game.off&&!game.crash){g.fillStyle='#ffe47b';g.font='bold 22px system-ui';g.textAlign='center';g.fillText('TRACK LIMIT — SLOWING DOWN',450,40);}
+ if(!game.crash&&game.speed===0&&game.score===0){g.fillStyle='#ffffffcc';g.font='bold 24px system-ui';g.textAlign='center';g.fillText('PRESS GAS OR ↑ TO START',450,275);}
+ if(game.crash){g.fillStyle='#000a';g.fillRect(0,0,W,H);g.fillStyle='white';g.textAlign='center';g.font='bold 54px system-ui';g.fillText('CRASH!',450,260);g.font='bold 23px system-ui';g.fillText('Press R to race again',450,310);}
+}
+function frame(ts){
+ requestAnimationFrame(frame);if(!last)last=ts;const dt=Math.min((ts-last)/1000,.1);last=ts;acc+=dt;
+ if(acc<1/30)return;const step=1/30;acc%=step;
+ if(!game.crash){
+  const gas=keys.ArrowUp||keys.w||touch.gas,brake=keys.ArrowDown||keys.s||touch.brake;
+  const left=keys.ArrowLeft||keys.a||touch.left,right=keys.ArrowRight||keys.d||touch.right;
+  game.speed=Math.max(0,Math.min(230,game.speed+(gas?100:-20)*step-(brake?180*step:0)));
+  game.x+=(Number(!!right)-Number(!!left))*(260+game.speed*.65)*step;
+  // Hard track limits: clamp the complete car body inside the barriers.
+  const minX=road.l+28,maxX=road.r-28;game.off=game.x<minX||game.x>maxX;
+  if(game.off){game.x=Math.max(minX,Math.min(maxX,game.x));game.speed=Math.max(0,game.speed-210*step);}
+  game.scroll+=game.speed*step*2.5;game.score+=Math.floor(game.speed*step*.08);
+  game.spawn+=step;if(game.spawn>Math.max(.48,1.35-game.speed/260)){game.spawn=0;const lane=[road.l+82,road.l+245,road.l+408][Math.floor(Math.random()*3)];game.traffic.push({x:lane,y:-55,color:['#3186c7','#e9c63c','#eee','#55a06b','#a46ac4'][Math.floor(Math.random()*5)]});}
+  for(const t of game.traffic){t.y+=(90+game.speed*.78)*step;if(Math.abs(t.y-445)<57&&Math.abs(t.x-game.x)<43){game.crash=true;game.best=Math.max(game.best,game.score);}}
+  game.traffic=game.traffic.filter(t=>t.y<H+60);
+ }
+ $('speed').textContent=Math.round(game.speed);$('score').textContent=game.score;$('best').textContent=game.best;draw();
+}
+window.addEventListener('keydown',e=>{keys[e.key]=true;if(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight',' '].includes(e.key))e.preventDefault();if(e.key.toLowerCase()==='r'){const b=game.best;reset();game.best=b;}});
+window.addEventListener('keyup',e=>keys[e.key]=false);
+document.querySelectorAll('[data-key]').forEach(b=>{const k=b.dataset.key;b.addEventListener('pointerdown',e=>{e.preventDefault();touch[k]=true;b.setPointerCapture(e.pointerId)});['pointerup','pointercancel','lostpointercapture'].forEach(ev=>b.addEventListener(ev,()=>touch[k]=false));});
+draw();requestAnimationFrame(frame);
+})();
+</script></body></html>
