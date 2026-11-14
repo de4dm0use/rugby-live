@@ -13,9 +13,13 @@
   const safe = (v) => String(v ?? "").replace(/[&<>"']/g, c => ({
     "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"
   }[c]));
-  const dateKey = () => new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Europe/London", year: "numeric", month: "2-digit", day: "2-digit"
-  }).format(new Date());
+  const dateKey = () => {
+    const parts = new Intl.DateTimeFormat("en-GB", {
+      timeZone: "Europe/London", year: "numeric", month: "2-digit", day: "2-digit"
+    }).formatToParts(new Date());
+    const p = Object.fromEntries(parts.map(x => [x.type, x.value]));
+    return p.year + "-" + p.month + "-" + p.day;
+  };
   const getKey = () => localStorage.getItem(KEY_STORAGE) || "";
 
   async function getGames(params) {
@@ -41,7 +45,7 @@
     return h == null || a == null ? "— : —" : h + " — " + a;
   }
   function matchCard(g) {
-    const live = ["1H","2H","HT","ET","P","LIVE"].includes(String(g.status?.short || "").toUpperCase());
+    const live = ["1H","2H","HT","ET","BT","PT","P","LIVE"].includes(String(g.status?.short || "").toUpperCase());
     const clock = g.status?.elapsed != null ? " · " + g.status.elapsed + "'" : "";
     const league = g.league?.name || "Rugby";
     const home = g.teams?.home?.name || "Home";
@@ -97,12 +101,15 @@
     busy = true;
     $("#matches").innerHTML = '<p class="muted">Loading real rugby data…</p>';
     try {
-      const [live, today] = await Promise.all([
-        getGames({ live: "all" }),
-        getGames({ date: dateKey() })
-      ]);
-      liveMatches = live;
+      // Rugby API's games endpoint is date/league/team based; it does not
+      // support the Football-style live=all parameter.
+      const today = await getGames({ date: dateKey(), timezone: "Europe/London" });
       todayMatches = today;
+      liveMatches = today.filter(g =>
+        ["1H","2H","HT","ET","BT","PT","P","LIVE"].includes(
+          String(g.status?.short || "").toUpperCase()
+        )
+      );
       apiReady = true;
       window.RUGBY_API_ERROR = "";
     } catch (e) {
@@ -161,7 +168,9 @@
   $("#tableFilter")?.addEventListener("change", () => {
     $("#tableRows").innerHTML = '<tr><td colspan="5">Standings integration is not enabled for this competition yet.</td></tr>';
   });
-  $("#api")?.addEventListener("click", openSettings);
+  // Assign rather than add a listener: this replaces the legacy demo modal handler
+  // still present in the original page script.
+  if ($("#api")) $("#api").onclick = openSettings;
   refresh();
   setInterval(refresh, 15 * 60 * 1000);
 })();
