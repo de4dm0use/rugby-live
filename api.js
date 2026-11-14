@@ -24,10 +24,17 @@
       headers: { "accept": "application/json" },
       cache: "no-store"
     });
+    const raw = await r.text();
     let data;
-    try { data = await r.json(); } catch { throw new Error("API returned an unreadable response."); }
-    if (!r.ok || (data.errors && Object.keys(data.errors).length)) {
-      throw new Error(JSON.stringify(data.errors || data.message || data.error || r.status));
+    try {
+      data = JSON.parse(raw);
+    } catch {
+      const type = r.headers.get("content-type") || "unknown content type";
+      const preview = raw.slice(0, 220).replace(/\\s+/g, " ").trim();
+      throw new Error("HTTP " + r.status + " from Worker; " + type + "; response: " + (preview || "[empty body]"));
+    }
+    if (!r.ok || (data.errors && Object.keys(data.errors).length) || data.error) {
+      throw new Error("HTTP " + r.status + ": " + JSON.stringify(data.errors || data.error || data.message || data));
     }
     return Array.isArray(data.response) ? data.response : [];
   }
