@@ -1,9 +1,6 @@
-/* RUGBY LIVE — API-Sports Rugby browser-key client.
-   The key is stored only in this browser's localStorage, never in this GitHub repo.
-   For a public multi-user deployment, use the Cloudflare Worker proxy instead. */
+/* RUGBY LIVE — API-Sports Rugby via private Cloudflare Worker. */
 (() => {
-  const API_BASE = "https://v1.rugby.api-sports.io";
-  const KEY_STORAGE = "rugby_live_apisports_key";
+  const API_BASE = "https://rugby-live.whetton-oscar.workers.dev/api";
   const $ = (s) => document.querySelector(s);
   let liveMatches = [];
   let todayMatches = [];
@@ -20,15 +17,11 @@
     const p = Object.fromEntries(parts.map(x => [x.type, x.value]));
     return p.year + "-" + p.month + "-" + p.day;
   };
-  const getKey = () => localStorage.getItem(KEY_STORAGE) || "";
-
   async function getGames(params) {
-    const key = getKey();
-    if (!key) throw new Error("Add your API-Sports key using Data provider setup.");
-    const q = new URLSearchParams(params);
-    const r = await fetch(API_BASE + "/games?" + q.toString(), {
+    const q = new URLSearchParams({ endpoint: "games", ...params });
+    const r = await fetch(API_BASE + "?" + q.toString(), {
       method: "GET",
-      headers: { "x-apisports-key": key },
+      headers: { "accept": "application/json" },
       cache: "no-store"
     });
     let data;
@@ -77,27 +70,17 @@
       : '<div class="fixture"><small>No further fixtures returned for today.</small></div>';
     const badge = document.querySelector(".demo");
     if (badge) {
-      badge.textContent = apiReady ? "● LIVE API DATA" : (getKey() ? "● API ERROR" : "● KEY NEEDED");
+      badge.textContent = apiReady ? "● LIVE API DATA" : "● API CONNECTION ERROR";
       badge.style.color = apiReady ? "var(--green)" : "var(--amber)";
     }
     const notice = document.querySelector(".notice");
     if (notice) notice.innerHTML = apiReady
       ? "<b>Live data connected.</b> Scores and fixtures are supplied by API-Sports Rugby. Coverage depends on the provider and competition. Player ratings and standings are not yet connected."
-      : "<b>Live data not connected.</b> " + safe(window.RUGBY_API_ERROR || "Open Data provider setup and add your API-Sports key.") + " No demo scores are being presented as real results.";
+      : "<b>Live data not connected.</b> " + safe(window.RUGBY_API_ERROR || "Check the Cloudflare Worker and its API_KEY secret.") + " No demo scores are being presented as real results.";
   }
 
   async function refresh() {
     if (busy) return;
-    if (!getKey()) {
-      apiReady = false;
-      window.RUGBY_API_ERROR = "No API key saved in this browser yet.";
-      $("#matches").innerHTML = '<p class="muted">Add your API-Sports key in Data provider setup to load genuine fixtures and scores.</p>';
-      $("#fixtures").innerHTML = '<div class="fixture"><small>Waiting for API key…</small></div>';
-      $("#playerRows").innerHTML = '<p class="muted">Player statistics are not connected yet.</p>';
-      $("#tableRows").innerHTML = '<tr><td colspan="5">Standings integration is not enabled yet.</td></tr>';
-      renderReal();
-      return;
-    }
     busy = true;
     $("#matches").innerHTML = '<p class="muted">Loading real rugby data…</p>';
     try {
@@ -122,40 +105,24 @@
   }
 
   function openSettings() {
-    const saved = getKey();
     const body = $("#modalBody");
-    $("#modalTitle").textContent = "API-Sports data settings";
+    $("#modalTitle").textContent = "Live data connection";
     body.innerHTML = `
-      <p>Paste your API-Sports Rugby key below. It is saved in this browser only and is not written to GitHub.</p>
-      <label for="rugbyApiKey" style="display:block;margin:14px 0 6px;font-weight:800;color:var(--text)">API key</label>
-      <input id="rugbyApiKey" type="password" autocomplete="off" spellcheck="false"
-        placeholder="Paste your API-Sports key" value="${safe(saved)}"
-        style="width:100%;padding:13px;border-radius:10px;border:1px solid var(--line);background:#07100d;color:white">
-      <div style="display:flex;gap:9px;flex-wrap:wrap;margin-top:12px">
-        <button id="saveRugbyKey" class="filter" type="button">Save key & connect</button>
-        <button id="removeRugbyKey" class="filter" type="button">Remove saved key</button>
-      </div>
-      <p id="rugbyKeyStatus" style="margin-top:12px"> ${saved ? "A key is saved in this browser." : "No key saved yet."} </p>
-      <p><b>Security:</b> this browser-only method means the key is visible to anyone using this browser's developer tools and is sent directly to API-Sports. Do not use a personal key on a shared device. For a public site with multiple visitors, use the private Cloudflare Worker method instead.</p>
-      <p><a href="https://dashboard.api-football.com/" target="_blank" rel="noopener" style="color:var(--green)">Open API-Sports dashboard</a></p>`;
+      <p>Rugby Live uses its Cloudflare Worker to connect securely to API-Sports Rugby.</p>
+      <p><b>Worker:</b> <a href="https://rugby-live.whetton-oscar.workers.dev" target="_blank" rel="noopener" style="color:var(--green)">rugby-live.whetton-oscar.workers.dev</a></p>
+      <p>Your API key is stored privately as a Cloudflare Worker secret. It is not stored in this website or GitHub.</p>
+      <p id="rugbyKeyStatus">Checking connection…</p>
+      <button id="testRugbyConnection" class="filter" type="button">Test connection</button>`;
     $("#modal").classList.add("open");
-    $("#saveRugbyKey").onclick = async () => {
-      const value = $("#rugbyApiKey").value.trim();
-      if (!value) { $("#rugbyKeyStatus").textContent = "Paste a key first."; return; }
-      localStorage.setItem(KEY_STORAGE, value);
-      $("#rugbyKeyStatus").textContent = "Key saved in this browser. Testing connection…";
-      liveMatches = []; todayMatches = [];
+    $("#rugbyKeyStatus").textContent = apiReady
+      ? "Connected — API-Sports data is loading."
+      : "Connection status: " + (window.RUGBY_API_ERROR || "not yet confirmed.");
+    $("#testRugbyConnection").onclick = async () => {
+      $("#rugbyKeyStatus").textContent = "Testing…";
       await refresh();
       $("#rugbyKeyStatus").textContent = apiReady
-        ? "Connected successfully. Real rugby data is loading."
-        : "Connection failed: " + (window.RUGBY_API_ERROR || "check the key and API plan.");
-    };
-    $("#removeRugbyKey").onclick = () => {
-      localStorage.removeItem(KEY_STORAGE);
-      liveMatches = []; todayMatches = []; apiReady = false;
-      $("#rugbyApiKey").value = "";
-      $("#rugbyKeyStatus").textContent = "Saved key removed from this browser.";
-      refresh();
+        ? "Connected successfully. API-Sports returned a valid response."
+        : "Connection failed: " + (window.RUGBY_API_ERROR || "check the Worker secret and API subscription.");
     };
   }
 
@@ -172,5 +139,5 @@
   // still present in the original page script.
   if ($("#api")) $("#api").onclick = openSettings;
   refresh();
-  setInterval(refresh, 15 * 60 * 1000);
+  setInterval(refresh, 5 * 60 * 1000);
 })();
